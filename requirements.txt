@@ -1,0 +1,9 @@
+discord.py
+alpaca-trade-api
+python-dotenv
+flask
+pandas
+scikit-learn
+joblib
+schedule
+twilio
