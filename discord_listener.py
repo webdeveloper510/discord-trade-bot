@@ -163,7 +163,7 @@ import discord
 from alpaca_trade_api import REST
 
 # ---------------- CONFIG ---------------- #
-
+SIGNAL_CHANNEL_ID = 1459267180859359357
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
@@ -227,6 +227,10 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    
+    if message.channel.id != SIGNAL_CHANNEL_ID:
+        return 
+    
     signal = parse_bear_signal(message.content)
 
     if signal:
