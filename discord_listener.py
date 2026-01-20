@@ -35,7 +35,7 @@ async def on_ready():
 
 # ---------------- CONFIG ---------------- #
 
-SIGNAL_CHANNEL_ID = 1459267180859359357
+SIGNAL_CHANNEL_ID = 991777727633960960
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
@@ -101,19 +101,15 @@ def calculate_position_size(symbol, entry_price):
     api = get_api()
     account = api.get_account()
     cash = float(account.cash)
-
     max_trade_value = cash * MAX_RISK_PER_TRADE
     qty = int(max_trade_value / entry_price)
-
     return max(1, qty)
 
 def is_price_in_range(symbol, expected_price):
     api = get_api()
     last = api.get_last_trade(symbol).price
-
     lower = expected_price * (1 - PRICE_TOLERANCE)
     upper = expected_price * (1 + PRICE_TOLERANCE)
-
     return lower <= last <= upper
 
 def place_trade_with_stop(symbol, qty, entry_price):
@@ -140,31 +136,22 @@ client = discord.Client(intents=intents)
 async def on_message(message):
     if message.author == client.user:
         return
-
     if message.channel.id != SIGNAL_CHANNEL_ID:
         return
-
     if is_trim_message(message.content):
         return
-
     signal = parse_bear_signal(message.content)
-
     if not signal:
         return
 
     try:
         api = get_api()
-
         expected_price = api.get_last_trade(signal["symbol"]).price
-
         if not is_price_in_range(signal["symbol"], expected_price):
             return
-
         entry_price = expected_price
         qty = calculate_position_size(signal["symbol"], entry_price)
-
         place_trade_with_stop(signal["symbol"], qty, entry_price)
-
         trade_msg = (
             f"🚀 Trade Executed Successfully\n\n"
             f"Symbol: {signal['symbol']}\n"
