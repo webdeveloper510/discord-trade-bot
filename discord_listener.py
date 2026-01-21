@@ -123,15 +123,38 @@ def is_trim_or_update(text):
 
 # ---------------- SMART LOGIC ---------------- #
 
+# def is_price_close_to_entry(symbol, entry_price):
+#     api = get_api()
+#     bars = api.get_bars(symbol, timeframe="1Min", limit=1)
+#     if not bars:
+#         return False
+
+#     last_price = bars[-1].c
+#     tolerance = entry_price * PRICE_TOLERANCE
+#     return abs(last_price - entry_price) <= tolerance
+
 def is_price_close_to_entry(symbol, entry_price):
     api = get_api()
+    
+    # Get the last 1-minute bar
     bars = api.get_bars(symbol, timeframe="1Min", limit=1)
     if not bars:
+        print(f"[DEBUG] No price data for {symbol}")
         return False
 
     last_price = bars[-1].c
-    tolerance = entry_price * PRICE_TOLERANCE
-    return abs(last_price - entry_price) <= tolerance
+    tolerance = max(entry_price * PRICE_TOLERANCE, 0.01)  # at least $0.01 tolerance
+    lower_bound = entry_price - tolerance
+    upper_bound = entry_price + tolerance
+
+    can_trade = lower_bound <= last_price <= upper_bound
+
+    # Debug info
+    print(f"[DEBUG] {symbol} Entry: {entry_price}, Last: {last_price}, "
+          f"Tolerance: ±{tolerance:.2f}, Allowed range: ({lower_bound:.2f}, {upper_bound:.2f}), "
+          f"Can trade? {can_trade}")
+
+    return can_trade
 
 def calculate_position_size(entry_price):
     api = get_api()
