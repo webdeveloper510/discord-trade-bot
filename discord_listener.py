@@ -45,7 +45,7 @@ ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "pratish@codenomad.net")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD","jldmjuduvlnvbrar")
 ALERT_EMAIL_TO = "davinder@codenomad.net"
 
 MAX_RISK_PER_TRADE = 0.20
