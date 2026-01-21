@@ -53,9 +53,7 @@ STOP_LOSS_PERCENT = 0.20       # 20%
 PRICE_TOLERANCE = 0.10  # 10% tolerance
 
 OPEN_TRADES_FILE = "open_trades.txt"
-
 # ---------------- PERSISTENT TRADES ---------------- #
-
 def load_open_trades():
     if not os.path.exists(OPEN_TRADES_FILE):
         return set()
@@ -69,7 +67,6 @@ def save_open_trade(symbol):
 OPEN_TRADES = load_open_trades()
 
 # ---------------- EMAIL ---------------- #
-
 def send_trade_email(subject, body):
     msg = MIMEMultipart()
     msg["From"] = EMAIL_HOST_USER
@@ -84,22 +81,16 @@ def send_trade_email(subject, body):
     server.quit()
 
 # ---------------- ALPACA ---------------- #
-
 def get_api():
     return REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
 
 # ---------------- PARSING ---------------- #
-
 def parse_bear_contract(text):
     pattern = r"Contract:\s*\$?(\w+)\s+(\d{1,2}/\d{1,2})\s+(\d+)([CP])"
     match = re.search(pattern, text, re.IGNORECASE)
     if not match:
         return None
-
     symbol, exp, strike, opt_type = match.groups()
-    year = datetime.now().year
-    month, day = exp.split("/")
-
     return symbol.upper()
 
 def extract_entry_price(text):
@@ -114,46 +105,28 @@ def extract_entry_price(text):
     return None
 
 def is_trim_or_update(text):
-    keywords = [
-        "trim", "trimming", "runner", "update",
-        "stop", "sl", "tp", "sold", "sell"
-    ]
+    keywords = ["trim", "trimming", "runner", "update", "stop", "sl", "tp", "sold", "sell"]
     t = text.lower()
     return any(k in t for k in keywords)
 
 # ---------------- SMART LOGIC ---------------- #
+def is_price_close_to_entry(entry_price, market_price=None):
+    """
+    Always True for options (no Alpaca bars). 
+    Optional market_price can be used if available.
+    """
+    if market_price is None:
+        # Skip check for options
+        print(f"[DEBUG] Skipping price check for entry price {entry_price}")
+        return True
 
-# def is_price_close_to_entry(symbol, entry_price):
-#     api = get_api()
-#     bars = api.get_bars(symbol, timeframe="1Min", limit=1)
-#     if not bars:
-#         return False
-
-#     last_price = bars[-1].c
-#     tolerance = entry_price * PRICE_TOLERANCE
-#     return abs(last_price - entry_price) <= tolerance
-
-def is_price_close_to_entry(symbol, entry_price):
-    api = get_api()
-    
-    # Get the last 1-minute bar
-    bars = api.get_bars(symbol, timeframe="1Min", limit=1)
-    if not bars:
-        print(f"[DEBUG] No price data for {symbol}")
-        return False
-
-    last_price = bars[-1].c
-    tolerance = max(entry_price * PRICE_TOLERANCE, 0.01)  # at least $0.01 tolerance
+    tolerance = max(entry_price * PRICE_TOLERANCE, 0.01)
     lower_bound = entry_price - tolerance
     upper_bound = entry_price + tolerance
+    can_trade = lower_bound <= market_price <= upper_bound
 
-    can_trade = lower_bound <= last_price <= upper_bound
-
-    # Debug info
-    print(f"[DEBUG] {symbol} Entry: {entry_price}, Last: {last_price}, "
-          f"Tolerance: ±{tolerance:.2f}, Allowed range: ({lower_bound:.2f}, {upper_bound:.2f}), "
-          f"Can trade? {can_trade}")
-
+    print(f"[DEBUG] Entry: {entry_price}, Market: {market_price}, "
+          f"Allowed: ({lower_bound:.2f}-{upper_bound:.2f}), Can trade? {can_trade}")
     return can_trade
 
 def calculate_position_size(entry_price):
@@ -178,7 +151,6 @@ def place_trade(symbol, qty, entry_price):
     )
 
 # ---------------- DISCORD BOT ---------------- #
-
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
@@ -211,14 +183,15 @@ async def on_message(message):
 
     entry_price = extract_entry_price(text)
     if entry_price is None:
-        await message.channel.send("⛔ Ignored: No entry price (already in trade)")
+        await message.channel.send("⛔ Ignored: No entry price")
         return
 
     if symbol in OPEN_TRADES:
         await message.channel.send("⛔ Ignored: Trade already open")
         return
 
-    if not is_price_close_to_entry(symbol, entry_price):
+    # Skip price check for options
+    if not is_price_close_to_entry(entry_price):
         await message.channel.send("⛔ Ignored: Price moved too far")
         return
 
@@ -239,6 +212,16 @@ async def on_message(message):
             f"Stop Loss: {stop_price}\n"
         )
 
+        # Debug info in Discord
+        await message.channel.send(
+            f"🤖 Debug Info:\n"
+            f"Symbol: {symbol}\n"
+            f"Entry Price: {entry_price}\n"
+            f"Qty: {qty}\n"
+            f"Stop Loss: {stop_price}\n"
+            f"Price check skipped ✅"
+        )
+
         await message.channel.send(msg)
         send_trade_email("🚨 Bear Bot Trade Executed", msg)
 
@@ -247,7 +230,6 @@ async def on_message(message):
         send_trade_email("❌ Bear Bot Trade Failed", str(e))
 
 # ---------------- START ---------------- #
-
 def start_discord():
     client.run(DISCORD_TOKEN)
 
