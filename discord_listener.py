@@ -52,7 +52,6 @@ MAX_RISK_PER_TRADE = 0.20      # 20%
 STOP_LOSS_PERCENT = 0.20       # 20%
 PRICE_TOLERANCE = 0.03         # 3% slippage allowed
 
-
 OPEN_TRADES = set()
 
 # ---------------- EMAIL ---------------- #
@@ -163,6 +162,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
+
 @client.event
 async def on_message(message):
     if message.author == client.user:
@@ -171,26 +171,46 @@ async def on_message(message):
     if message.channel.id != SIGNAL_CHANNEL_ID:
         return
 
-    text = message.content
+    text = message.content.strip().lower()
+
+    # ---------------- HEALTH CHECK ---------------- #
+    if text == "hi":
+        await message.channel.send("🤖 Bear Bot is running and listening ✅")
+        return
+
+    # ACK every message so you know bot is alive
+    await message.channel.send("👀 Signal received – checking...")
+
+    original_text = message.content
 
     # Ignore trims / updates / management
-    if is_trim_or_update(text):
+    if is_trim_or_update(original_text):
+        await message.channel.send("⛔ Ignored: Trim / update / management message")
         return
 
-    contract = parse_bear_contract(text)
+    contract = parse_bear_contract(original_text)
     if not contract:
+        await message.channel.send("⛔ Ignored: No valid contract found")
         return
 
-    entry_price = extract_entry_price(text)
+    entry_price = extract_entry_price(original_text)
     if entry_price is None:
-        return  # No entry = already in trade
+        await message.channel.send(
+            "⛔ Ignored: No entry price found\n"
+            "ℹ️ This usually means the trade was already entered earlier."
+        )
+        return
 
     symbol = contract["symbol"]
 
     if symbol in OPEN_TRADES:
+        await message.channel.send("⛔ Ignored: Trade already open for this symbol")
         return
 
     if not is_price_close_to_entry(symbol, entry_price):
+        await message.channel.send(
+            "⛔ Ignored: Current price too far from entry"
+        )
         return
 
     try:
@@ -199,12 +219,14 @@ async def on_message(message):
 
         OPEN_TRADES.add(symbol)
 
+        stop_price = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
+
         msg = (
             f"🚀 NEW TRADE EXECUTED\n\n"
             f"Symbol: {symbol}\n"
             f"Contracts: {qty}\n"
             f"Entry: {entry_price}\n"
-            f"Stop Loss: {round(entry_price * (1 - STOP_LOSS_PERCENT), 2)}\n"
+            f"Stop Loss: {stop_price}\n"
         )
 
         await message.channel.send(msg)
@@ -213,6 +235,58 @@ async def on_message(message):
     except Exception as e:
         await message.channel.send(f"❌ Trade Failed: {e}")
         send_trade_email("❌ Bear Bot Trade Failed", str(e))
+        
+        
+# @client.event
+# async def on_message(message):
+#     if message.author == client.user:
+#         return
+
+#     if message.channel.id != SIGNAL_CHANNEL_ID:
+#         return
+
+#     text = message.content
+
+#     # Ignore trims / updates / management
+#     if is_trim_or_update(text):
+#         return
+
+#     contract = parse_bear_contract(text)
+#     if not contract:
+#         return
+
+#     entry_price = extract_entry_price(text)
+#     if entry_price is None:
+#         return  # No entry = already in trade
+
+#     symbol = contract["symbol"]
+
+#     if symbol in OPEN_TRADES:
+#         return
+
+#     if not is_price_close_to_entry(symbol, entry_price):
+#         return
+
+#     try:
+#         qty = calculate_position_size(entry_price)
+#         place_trade(symbol, qty, entry_price)
+
+#         OPEN_TRADES.add(symbol)
+
+#         msg = (
+#             f"🚀 NEW TRADE EXECUTED\n\n"
+#             f"Symbol: {symbol}\n"
+#             f"Contracts: {qty}\n"
+#             f"Entry: {entry_price}\n"
+#             f"Stop Loss: {round(entry_price * (1 - STOP_LOSS_PERCENT), 2)}\n"
+#         )
+
+#         await message.channel.send(msg)
+#         send_trade_email("🚨 Bear Bot Trade Executed", msg)
+
+#     except Exception as e:
+#         await message.channel.send(f"❌ Trade Failed: {e}")
+#         send_trade_email("❌ Bear Bot Trade Failed", str(e))
 
 # ---------------- START ---------------- #
 
@@ -221,11 +295,9 @@ def start_discord():
 
 if __name__ == "__main__":
     start_discord()
-    
-    
 
 
-# # ---------------- EMAIL ---------------- #
+# ---------------- EMAIL ---------------- #
 
 # def send_trade_email(subject, body):
 #     msg = MIMEMultipart()
@@ -348,3 +420,128 @@ if __name__ == "__main__":
 # if __name__ == "__main__":
 #     start_discord()
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ==================================old======================================
+
+# ---------------- EMAIL ---------------- #
+
+# def send_trade_email(subject, body):
+#     msg = MIMEMultipart()
+#     msg["From"] = EMAIL_HOST_USER
+#     msg["To"] = ALERT_EMAIL_TO
+#     msg["Subject"] = subject
+#     msg.attach(MIMEText(body, "plain"))
+
+#     server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
+#     server.starttls()
+#     server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
+#     server.send_message(msg)
+#     server.quit()
+
+# # ---------------- ALPACA ---------------- #
+
+# def get_api():
+#     return REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
+
+# # ---------------- SIGNAL PARSER ---------------- #
+
+# def parse_bear_signal(text):
+#     pattern = r"Contract:\s*(\w+)\s+(\d{1,2}/\d{1,2})\s+(\d+)([CP])"
+#     match = re.search(pattern, text)
+
+#     if not match:
+#         return None
+
+#     symbol, exp, strike, opt_type = match.groups()
+#     year = datetime.now().year
+#     month, day = exp.split("/")
+
+#     return {
+#         "symbol": symbol,
+#         "expiry": f"{year}-{month.zfill(2)}-{day.zfill(2)}",
+#         "strike": strike,
+#         "type": "call" if opt_type == "C" else "put"
+#     }
+
+# # ---------------- DISCORD BOT ---------------- #
+
+# intents = discord.Intents.default()
+# intents.message_content = True
+# client = discord.Client(intents=intents)
+
+# @client.event
+# async def on_message(message):
+#     if message.author == client.user:
+#         return
+
+    
+#     if message.channel.id != SIGNAL_CHANNEL_ID:
+#         return 
+    
+#     signal = parse_bear_signal(message.content)
+
+#     if signal:
+#         try:
+#             api = get_api()
+
+#             order = api.submit_order(
+#                 symbol=signal["symbol"],
+#                 qty=1,
+#                 side="buy",
+#                 type="market",
+#                 time_in_force="day"
+#             )
+
+#             trade_msg = (
+#                 f"Trade Placed Successfully 🚀\n\n"
+#                 f"Symbol: {signal['symbol']}\n"
+#                 f"Expiry: {signal['expiry']}\n"
+#                 f"Strike: {signal['strike']}\n"
+#                 f"Type: {signal['type'].upper()}\n"
+#             )
+
+#             await message.channel.send(f"✅ {trade_msg}")
+
+#             send_trade_email(
+#                 subject="🚨 Trading Bot Alert – Trade Executed",
+#                 body=trade_msg
+#             )
+
+#         except Exception as e:
+#             await message.channel.send(f"❌ Trade Failed: {e}")
+
+#             send_trade_email(
+#                 subject="❌ Trading Bot Alert – Trade Failed",
+#                 body=str(e)
+#             )
+
+# # ---------------- START ---------------- #
+
+# def start_discord():
+#     client.run(DISCORD_TOKEN)
+
+# if __name__ == "__main__":
+#     start_discord()
