@@ -225,8 +225,11 @@ async def on_message(message):
 
 # ---------------- START ---------------- #
 
-if __name__ == "__main__":
+def start_discord():
     client.run(DISCORD_TOKEN)
+
+if __name__ == "__main__":
+    start_discord()
 
 
 # OPEN_TRADES = set()
