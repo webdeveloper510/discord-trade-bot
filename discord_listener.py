@@ -51,6 +51,7 @@ ALERT_EMAIL_TO = "davinder@codenomad.net"
 MAX_RISK_PER_TRADE = 0.20      # 20%
 STOP_LOSS_PERCENT = 0.20       # 20%
 PRICE_TOLERANCE = 0.10  # 10% tolerance
+TAKE_PROFIT_PERCENT = 0.20
 
 OPEN_TRADES_FILE = "open_trades.txt"
 # ---------------- PERSISTENT TRADES ---------------- #
@@ -139,6 +140,7 @@ def calculate_position_size(entry_price):
 def place_trade(symbol, qty, entry_price):
     api = get_api()
     stop_price = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
+    take_profit_price = round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)
 
     api.submit_order(
         symbol=symbol,
@@ -147,8 +149,23 @@ def place_trade(symbol, qty, entry_price):
         type="market",
         time_in_force="day",
         order_class="bracket",
-        stop_loss={"stop_price": stop_price}
+        stop_loss={"stop_price": stop_price},
+        take_profit={"limit_price": take_profit_price}
     )
+
+# def place_trade(symbol, qty, entry_price):
+#     api = get_api()
+#     stop_price = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
+
+#     api.submit_order(
+#         symbol=symbol,
+#         qty=qty,
+#         side="buy",
+#         type="market",
+#         time_in_force="day",
+#         order_class="bracket",
+#         stop_loss={"stop_price": stop_price}
+#     )
 
 # ---------------- DISCORD BOT ---------------- #
 intents = discord.Intents.default()
