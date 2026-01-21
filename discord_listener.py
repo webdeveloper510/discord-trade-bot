@@ -47,7 +47,7 @@ EMAIL_PORT = 587
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "pratish@codenomad.net")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD","jldmjuduvlnvbrar")
 ALERT_EMAIL_TO = "davinder@codenomad.net"
-
+ALERT_ONLY = True
 MAX_RISK_PER_TRADE = 0.20
 STOP_LOSS_PERCENT = 0.20
 TAKE_PROFIT_PERCENT = 0.20
@@ -193,6 +193,9 @@ def calculate_position_size(entry_price):
 #     )
 
 def place_trade(symbol, qty, entry_price):
+    if ALERT_ONLY:
+        print(f"ALERT ONLY: {symbol} @ {entry_price} x {qty}")
+        return
     api = get_api()
 
     api.submit_order(
@@ -202,6 +205,7 @@ def place_trade(symbol, qty, entry_price):
         type="limit",
         limit_price=entry_price,
         time_in_force="day"
+        
     )
 # ---------------- DISCORD BOT ---------------- #
 intents = discord.Intents.default()
@@ -263,7 +267,8 @@ async def on_message(message):
     try:
         alpaca_symbol = contract_id.split("_")[0]
         qty = calculate_position_size(entry_price)
-        place_trade(occ_symbol, qty, entry_price)
+        # place_trade(occ_symbol, qty, entry_price)
+        place_trade(contract["symbol"], qty, entry_price)
 
         OPEN_TRADES.add(contract_id)
         save_open_trade(contract_id)
