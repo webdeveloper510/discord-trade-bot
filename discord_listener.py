@@ -147,15 +147,39 @@ def calculate_position_size(entry_price):
 def place_trade(symbol, qty, entry_price):
     api = get_api()
 
-    # Stop loss (20% below entry)
-    stop_price = round(entry_price * (1 - STOP_LOSS_PERCENT), 4)
-    if stop_price >= entry_price:
-        stop_price = round(entry_price - 0.0001, 4)  # tiny decrement for cheap options
+    # -------- STOP LOSS -------- #
+    stop_price = entry_price * (1 - STOP_LOSS_PERCENT)
 
-    # Take profit (20% above entry, but at least entry + 0.01)
-    take_profit_price = max(entry_price * (1 + TAKE_PROFIT_PERCENT), entry_price + 0.01)
-    take_profit_price = round(take_profit_price + 0.0001, 4)  # tiny buffer for Alpaca
-     
+    # Ensure stop < entry
+    if stop_price >= entry_price:
+        stop_price = entry_price - 0.01
+
+    # Options → always 2 decimals
+    stop_price = round(stop_price, 2)
+
+    # -------- TAKE PROFIT -------- #
+    # 1) Calculate % target
+    tp_percent_price = entry_price * (1 + TAKE_PROFIT_PERCENT)
+
+    # 2) FORCE Alpaca rule: tp >= entry + 0.01
+    min_tp_price = entry_price + 0.01
+
+    # 3) Pick the higher one
+    take_profit_price = max(tp_percent_price, min_tp_price)
+
+    # 4) ROUND AFTER choosing (IMPORTANT)
+    take_profit_price = round(take_profit_price, 2)
+
+    # 5) FINAL SAFETY CHECK (this is the key fix)
+    if take_profit_price < round(entry_price + 0.01, 2):
+        take_profit_price = round(entry_price + 0.01, 2)
+
+    print(
+        f"[DEBUG] Entry={entry_price} | "
+        f"Stop={stop_price} | "
+        f"TakeProfit={take_profit_price}"
+    )
+
     api.submit_order(
         symbol=symbol,
         qty=qty,
@@ -167,8 +191,7 @@ def place_trade(symbol, qty, entry_price):
         take_profit={"limit_price": take_profit_price}
     )
 
-    print(f"[DEBUG] Trade executed ✅ {symbol} Entry: {entry_price}, Stop: {stop_price}, Take Profit: {take_profit_price}")
-    
+    print(f"[DEBUG] Trade executed ✅ {symbol}")
     
 # def place_trade(symbol, qty, entry_price):
 #     api = get_api()
