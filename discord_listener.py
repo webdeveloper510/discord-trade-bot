@@ -51,7 +51,8 @@ ALERT_EMAIL_TO = "davinder@codenomad.net"
 MAX_RISK_PER_TRADE = 0.20      # 20%
 STOP_LOSS_PERCENT = 0.20       # 20%
 PRICE_TOLERANCE = 0.10  # 10% tolerance
-TAKE_PROFIT_PERCENT = 0.20
+TAKE_PROFIT_PERCENT = 0.20  # 20% target
+STOP_LOSS_PERCENT = 0.20 
 
 OPEN_TRADES_FILE = "open_trades.txt"
 # ---------------- PERSISTENT TRADES ---------------- #
@@ -139,9 +140,18 @@ def calculate_position_size(entry_price):
 
 def place_trade(symbol, qty, entry_price):
     api = get_api()
-    stop_price = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
-    take_profit_price = round(max(entry_price * (1 + TAKE_PROFIT_PERCENT), entry_price + 0.01), 2)
 
+    # Stop loss: never above entry
+    stop_price = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
+    if stop_price >= entry_price:
+        stop_price = round(entry_price - 0.01, 2)
+
+    # Take profit: must be >= entry + 0.01
+    take_profit_price = round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)
+    if take_profit_price <= entry_price:
+        take_profit_price = round(entry_price + 0.01, 2)
+
+    # Alpaca bracket order
     api.submit_order(
         symbol=symbol,
         qty=qty,
@@ -153,8 +163,7 @@ def place_trade(symbol, qty, entry_price):
         take_profit={"limit_price": take_profit_price}
     )
 
-    print(f"[DEBUG] Placed trade: {symbol} Entry: {entry_price}, Stop: {stop_price}, Take Profit: {take_profit_price}")
-
+    print(f"[DEBUG] Trade executed ✅ {symbol} Entry: {entry_price}, Stop: {stop_price}, Take Profit: {take_profit_price}")
 # def place_trade(symbol, qty, entry_price):
 #     api = get_api()
 #     stop_price = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
