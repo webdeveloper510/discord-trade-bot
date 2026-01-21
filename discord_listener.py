@@ -168,17 +168,32 @@ def calculate_position_size(entry_price):
     qty = int(max_value / (entry_price * 100))  # options multiplier
     return max(1, qty)
 
+# def place_trade(symbol, qty, entry_price):
+#     api = get_api()
+
+#     stop_price = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
+#     if stop_price >= entry_price:
+#         stop_price = round(entry_price - 0.01, 2)
+
+#     take_profit_price = max(
+#         round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2),
+#         round(entry_price + 0.01, 2)
+#     )
+
+#     api.submit_order(
+#         symbol=symbol,
+#         qty=qty,
+#         side="buy",
+#         type="limit",
+#         limit_price=entry_price,
+#         time_in_force="day",
+#         order_class="bracket",
+#         stop_loss={"stop_price": stop_price},
+#         take_profit={"limit_price": take_profit_price},
+#     )
+
 def place_trade(symbol, qty, entry_price):
     api = get_api()
-
-    stop_price = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
-    if stop_price >= entry_price:
-        stop_price = round(entry_price - 0.01, 2)
-
-    take_profit_price = max(
-        round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2),
-        round(entry_price + 0.01, 2)
-    )
 
     api.submit_order(
         symbol=symbol,
@@ -186,12 +201,8 @@ def place_trade(symbol, qty, entry_price):
         side="buy",
         type="limit",
         limit_price=entry_price,
-        time_in_force="day",
-        order_class="bracket",
-        stop_loss={"stop_price": stop_price},
-        take_profit={"limit_price": take_profit_price},
+        time_in_force="day"
     )
-
 # ---------------- DISCORD BOT ---------------- #
 intents = discord.Intents.default()
 intents.message_content = True
