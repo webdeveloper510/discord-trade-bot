@@ -86,18 +86,49 @@ def get_api():
     return REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
 
 # ---------------- PARSING ---------------- #
+# def parse_bear_contract(text):
+#     """
+#     Extract FULL option contract (symbol + exp + strike + type)
+#     """
+#     pattern = r"Contract:\s*\$?(\w+)\s+(\d{1,2}/\d{1,2})\s+(\d+)([CP])"
+#     match = re.search(pattern, text, re.IGNORECASE)
+#     if not match:
+#         return None
+
+#     symbol, exp, strike, opt_type = match.groups()
+#     return f"{symbol.upper()}_{exp}_{strike}{opt_type.upper()}"
 def parse_bear_contract(text):
     """
-    Extract FULL option contract (symbol + exp + strike + type)
+    Example signal:
+    Contract: SPY 1/19 480C
     """
-    pattern = r"Contract:\s*\$?(\w+)\s+(\d{1,2}/\d{1,2})\s+(\d+)([CP])"
+    pattern = r"Contract:\s*\$?(\w+)\s+(\d{1,2})/(\d{1,2})\s+(\d+)([CP])"
     match = re.search(pattern, text, re.IGNORECASE)
+
     if not match:
         return None
 
-    symbol, exp, strike, opt_type = match.groups()
-    return f"{symbol.upper()}_{exp}_{strike}{opt_type.upper()}"
+    symbol, month, day, strike, opt_type = match.groups()
 
+    return {
+        "symbol": symbol.upper(),
+        "month": int(month),
+        "day": int(day),
+        "strike": int(strike),
+        "type": opt_type.upper(),
+    }
+    
+def build_occ_symbol(contract):
+    """
+    Converts Bear contract → OCC option symbol
+    SPY 1/19 480C → SPY250119C00480000
+    """
+    year = datetime.now().year % 100
+    exp = f"{year:02d}{contract['month']:02d}{contract['day']:02d}"
+    strike = f"{contract['strike'] * 1000:08d}"
+
+    return f"{contract['symbol']}{exp}{contract['type']}{strike}"  
+  
 def extract_entry_price(text):
     patterns = [
         r"Entry:\s*@?\s*(\d+(\.\d+)?)",
@@ -109,19 +140,32 @@ def extract_entry_price(text):
             return float(match.group(1))
     return None
 
+# def is_trim_or_update(text):
+#     keywords = [
+#         "trim", "trimming", "runner", "update",
+#         "stop", "sl", "tp", "sold", "sell"
+#     ]
+#     return any(k in text.lower() for k in keywords)
+
 def is_trim_or_update(text):
     keywords = [
         "trim", "trimming", "runner", "update",
-        "stop", "sl", "tp", "sold", "sell"
+        "sold", "sell", "tp", "sl", "stop"
     ]
     return any(k in text.lower() for k in keywords)
-
 # ---------------- POSITION LOGIC ---------------- #
+# def calculate_position_size(entry_price):
+#     api = get_api()
+#     cash = float(api.get_account().cash)
+#     max_value = cash * MAX_RISK_PER_TRADE
+#     qty = int(max_value / entry_price)
+#     return max(1, qty)
 def calculate_position_size(entry_price):
     api = get_api()
     cash = float(api.get_account().cash)
     max_value = cash * MAX_RISK_PER_TRADE
-    qty = int(max_value / entry_price)
+
+    qty = int(max_value / (entry_price * 100))  # options multiplier
     return max(1, qty)
 
 def place_trade(symbol, qty, entry_price):
@@ -176,16 +220,29 @@ async def on_message(message):
         return
 
     # ❌ Require FULL contract
-    contract_id = parse_bear_contract(text)
-    if not contract_id:
-        await message.channel.send("⛔ Ignored: No contract found")
+    contract = parse_bear_contract(text)
+    if not contract:
+        await message.channel.send("⛔ Ignored: No valid contract found")
         return
+
+    occ_symbol = build_occ_symbol(contract)
+    contract_id = occ_symbol
+    # contract_id = parse_bear_contract(text)
+    # if not contract_id:
+    #     await message.channel.send("⛔ Ignored: No contract found")
+    #     return
 
     # ❌ Require ENTRY price
     entry_price = extract_entry_price(text)
     if entry_price is None:
-        await message.channel.send("⛔ Ignored: No entry price (already bought)")
+        await message.channel.send(
+            "⛔ Ignored: No entry price (already in position)"
+        )
         return
+    # entry_price = extract_entry_price(text)
+    # if entry_price is None:
+    #     await message.channel.send("⛔ Ignored: No entry price (already bought)")
+    #     return
 
     # ❌ Prevent duplicate trades
     if contract_id in OPEN_TRADES:
@@ -195,17 +252,18 @@ async def on_message(message):
     try:
         alpaca_symbol = contract_id.split("_")[0]
         qty = calculate_position_size(entry_price)
-
-        place_trade(alpaca_symbol, qty, entry_price)
+        place_trade(occ_symbol, qty, entry_price)
 
         OPEN_TRADES.add(contract_id)
         save_open_trade(contract_id)
 
         msg = (
             f"🚀 TRADE EXECUTED\n\n"
-            f"Contract: {contract_id}\n"
+            f"Option: {occ_symbol}\n"
             f"Contracts: {qty}\n"
             f"Entry: {entry_price}\n"
+            f"Stop: {round(entry_price * (1 - STOP_LOSS_PERCENT), 2)}\n"
+            f"Target: {round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)}\n"
         )
 
         await message.channel.send(msg)
