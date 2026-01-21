@@ -50,7 +50,7 @@ ALERT_EMAIL_TO = "davinder@codenomad.net"
 
 MAX_RISK_PER_TRADE = 0.20      # 20%
 STOP_LOSS_PERCENT = 0.20       # 20%
-PRICE_TOLERANCE = 0.03         # 3% slippage allowed
+PRICE_TOLERANCE = 0.10  # 10% tolerance
 
 OPEN_TRADES_FILE = "open_trades.txt"
 
