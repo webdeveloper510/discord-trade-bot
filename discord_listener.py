@@ -181,15 +181,16 @@ def place_trade(symbol, qty, entry_price):
     )
 
     api.submit_order(
-        symbol=symbol,
-        qty=qty,
-        side="buy",
-        type="market",
-        time_in_force="day",
-        order_class="bracket",
-        stop_loss={"stop_price": stop_price},
-        take_profit={"limit_price": take_profit_price}
-    )
+    symbol=symbol,
+    qty=qty,
+    side="buy",
+    type="limit",                 # ✅ REQUIRED
+    limit_price=entry_price,      # ✅ REQUIRED
+    time_in_force="day",
+    order_class="bracket",
+    stop_loss={"stop_price": stop_price},
+    take_profit={"limit_price": take_profit_price}
+)
 
     print(f"[DEBUG] Trade executed ✅ {symbol}")
     
