@@ -19,7 +19,7 @@ async def on_ready():
 
 # ---------------- CONFIG ---------------- #
 # SIGNAL_CHANNEL_ID = 1459267180859359357
-SIGNAL_CHANNEL_ID = 991777727633960960
+SIGNAL_CHANNEL_ID = 1463777958010425394
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -196,7 +196,7 @@ async def on_message(message):
         alpaca_symbol = contract_id.split("_")[0]
         qty = calculate_position_size(entry_price)
         place_trade(contract["symbol"], qty, entry_price)
-
+                                                                                                                                                                                           
         OPEN_TRADES.add(contract_id)
         save_open_trade(contract_id)
 
