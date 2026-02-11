@@ -188,9 +188,9 @@ async def on_message(message):
         return
 
     # ❌ Prevent duplicate trades
-    if contract_id in OPEN_TRADES:
-        await message.channel.send("⛔ Ignored: Contract already open")
-        return
+    # if contract_id in OPEN_TRADES:
+    #     await message.channel.send("⛔ Ignored: Contract already open")
+    #     return
 
     try:
         alpaca_symbol = contract_id.split("_")[0]
