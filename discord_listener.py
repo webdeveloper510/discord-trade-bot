@@ -18,8 +18,8 @@ async def on_ready():
     print(f"Discord Bot logged in as {client.user}")
 
 # ---------------- CONFIG ---------------- #
-SIGNAL_CHANNEL_ID = 1459267180859359357
-# SIGNAL_CHANNEL_ID = 1463777958010425394
+# SIGNAL_CHANNEL_ID = 1459267180859359357
+SIGNAL_CHANNEL_ID = 1463777958010425394
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
