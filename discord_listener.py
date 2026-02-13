@@ -148,6 +148,16 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
+
+def get_account_balance():
+    api = get_api()
+    account = api.get_account()
+    return {
+        "cash": float(account.cash),
+        "equity": float(account.equity),
+        "buying_power": float(account.buying_power),
+    }
+
 @client.event
 async def on_message(message):
     if message.author == client.user:
@@ -162,7 +172,21 @@ async def on_message(message):
     if text.lower() == "hi":
         await message.channel.send("🤖 Bear Bot is running and listening ✅")
         return
-
+    
+    # ✅ Balance check
+    if text == "balance":
+        try:
+            bal = get_account_balance()
+            msg = (
+                f"💰 **Account Balance**\n\n"
+                f"Cash: ${bal['cash']:.2f}\n"
+                f"Equity: ${bal['equity']:.2f}\n"
+                f"Buying Power: ${bal['buying_power']:.2f}"
+            )
+            await message.channel.send(msg)
+        except Exception as e:
+            await message.channel.send(f"❌ Failed to fetch balance: {e}")
+        return
     await message.channel.send("👀 Signal received – checking...")
 
     # ❌ Ignore trims / updates / sells
