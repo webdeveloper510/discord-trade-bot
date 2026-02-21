@@ -181,6 +181,36 @@ def get_account_balance():
     }
 
 # ---------------- AUTO SELL ---------------- #
+
+def convert_spx_to_spy(contract):
+    """
+    Converts SPX contract to equivalent SPY contract
+    using live price ratio.
+    """
+    api = get_api()
+
+    try:
+        spx_price = float(api.get_latest_trade("SPY").price) * 10
+        spy_price = float(api.get_latest_trade("SPY").price)
+    except Exception as e:
+        print("Failed to fetch SPY price for conversion:", e)
+        return contract
+
+    ratio = spx_price / spy_price  # ~10
+    converted_strike = round(contract["strike"] / ratio)
+
+    print(f"Converted SPX {contract['strike']} -> SPY {converted_strike}")
+
+    return {
+        "symbol": "SPY",
+        "month": contract["month"],
+        "day": contract["day"],
+        "strike": converted_strike,
+        "type": contract["type"],
+    }
+
+
+
 def check_open_trades_and_sell():
     api = get_api()
 
@@ -251,7 +281,10 @@ async def on_message(message):
         return
 
     # Parse contract
-    contract = parse_bear_contract(text)
+    # contract = parse_bear_contract(text)
+    if contract and contract["symbol"] == "SPX":
+       print("SPX detected — converting to SPY")
+    contract = convert_spx_to_spy(contract)
     if not contract:
         await message.channel.send("⛔ Ignored: No valid contract found")
         return
