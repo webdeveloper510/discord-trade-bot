@@ -8,14 +8,20 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import discord
 from alpaca_trade_api import REST
+import asyncio
 
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
+# @client.event
+# async def on_ready():
+#     print(f"Discord Bot logged in as {client.user}")
+
 @client.event
 async def on_ready():
-    print(f"Discord Bot logged in as {client.user}")
+    print(f"Logged in as {client.user}")
+    client.loop.create_task(auto_sell_loop())    
 
 # ---------------- CONFIG ---------------- #
 # SIGNAL_CHANNEL_ID = 1459267180859359357
@@ -37,7 +43,7 @@ ALERT_ONLY = False
 # STOP_LOSS_PERCENT = 0.20
 # TAKE_PROFIT_PERCENT = 0.20
 
-MAX_RISK_PER_TRADE = 0.02  # 2% of cash per trade
+MAX_RISK_PER_TRADE = 0.02 
 STOP_LOSS_PERCENT = 0.2
 TAKE_PROFIT_PERCENT = 0.3
 
@@ -184,6 +190,9 @@ def check_open_trades_and_sell():
         print("Failed to fetch positions:", e)
         return
 
+    if not positions:
+        return
+
     for position in positions:
         symbol = position.symbol
         qty = int(position.qty)
@@ -193,14 +202,14 @@ def check_open_trades_and_sell():
         stop_price = entry_price * (1 - STOP_LOSS_PERCENT)
         target_price = entry_price * (1 + TAKE_PROFIT_PERCENT)
 
-        # Stop Loss
+        print(f"Checking {symbol} | Entry: {entry_price} | Current: {current_price}")
+
         if current_price <= stop_price:
-            print(f"STOP HIT: {symbol}")
+            print(f"🛑 STOP HIT: {symbol}")
             sell_trade(symbol, qty)
 
-        # Take Profit
         elif current_price >= target_price:
-            print(f"TARGET HIT: {symbol}")
+            print(f"🎯 TARGET HIT: {symbol}")
             sell_trade(symbol, qty)
 
 @client.event
@@ -263,7 +272,8 @@ async def on_message(message):
 
     try:
         qty = calculate_position_size(entry_price)
-        place_trade(contract["symbol"], qty, entry_price)
+        # place_trade(contract["symbol"], qty, entry_price)
+        place_trade(occ_symbol, qty, entry_price)
 
         OPEN_TRADES.add(contract_id)
         save_open_trade(contract_id)
@@ -290,6 +300,19 @@ def start_discord():
 
 if __name__ == "__main__":
     start_discord()
+    
+    
+async def auto_sell_loop():
+    await client.wait_until_ready()
+    print("Auto-sell loop started ✅")
+
+    while not client.is_closed():
+        try:
+            check_open_trades_and_sell()
+        except Exception as e:
+            print("Auto-sell error:", e)
+
+        await asyncio.sleep(15)  # checks every 15 seconds    
 
 
 # # ---------------- PERSISTENT TRADES ---------------- #
