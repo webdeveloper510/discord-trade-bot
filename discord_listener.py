@@ -159,6 +159,8 @@ def get_account_balance():
 async def monitor_trades():
     api = get_api()
     while True:
+        print("⏱ Monitoring trades...")  # This prints in console every 30s
+
         for occ_symbol, data in list(OPEN_TRADES_INFO.items()):
             try:
                 bars = api.get_bars(data['symbol'], "1Min", limit=1, adjustment='raw').df
@@ -186,6 +188,7 @@ async def monitor_trades():
 
             except Exception as e:
                 print(f"Error monitoring {occ_symbol}: {e}")    
+
         await asyncio.sleep(30)
 
 # ---------------- DISCORD BOT ---------------- #
