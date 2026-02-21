@@ -161,32 +161,49 @@ async def monitor_trades():
     while True:
         for occ_symbol, data in list(OPEN_TRADES_INFO.items()):
             try:
-                bars = api.get_bars(occ_symbol, "1Min", limit=1, adjustment='raw').df
+                # Use the underlying stock symbol for price tracking
+                underlying_symbol = ''.join(filter(str.isalpha, occ_symbol))  # e.g., SPY from SPY260225C00500000
+                bars = api.get_bars(underlying_symbol, "1Min", limit=1, adjustment='raw').df
+
                 if bars.empty:
                     continue
 
                 current_price = bars['close'].iloc[-1]
 
-                if current_price <= data["stop"] or current_price >= data["target"]:
-                    api.submit_order(
-                        symbol=occ_symbol,
-                        qty=data["qty"],
-                        side="sell",
-                        type="limit",
-                        limit_price=current_price,
-                        time_in_force="day"
-                    )
-                    await client.get_channel(SIGNAL_CHANNEL_ID).send(
-                        f"🟢 AUTO SELL EXECUTED: {occ_symbol}\nPrice: {current_price}\nQty: {data['qty']}"
-                    )
+                # Simple option price approximation (delta ~ 0.5 for at-the-money options)
+                option_price_est = data["entry"] + (current_price - data["underlying_entry"]) * 0.5
 
+                # Check stop/target
+                if option_price_est <= data["stop"] or option_price_est >= data["target"]:
+                    # Place market sell for option if filled, else alert
+                    try:
+                        api.submit_order(
+                            symbol=occ_symbol,
+                            qty=data["qty"],
+                            side="sell",
+                            type="market",
+                            time_in_force="day"
+                        )
+                        await client.get_channel(SIGNAL_CHANNEL_ID).send(
+                            f"🟢 AUTO SELL EXECUTED: {occ_symbol}\n"
+                            f"Estimated Price: {option_price_est:.2f}\nQty: {data['qty']}"
+                        )
+                    except Exception as e:
+                        await client.get_channel(SIGNAL_CHANNEL_ID).send(
+                            f"⚠️ AUTO SELL FAILED: {occ_symbol}\n"
+                            f"Reason: {e}\n"
+                            f"Estimated Price: {option_price_est:.2f}"
+                        )
+
+                    # Remove from open trades
                     del OPEN_TRADES_INFO[occ_symbol]
                     if occ_symbol in OPEN_TRADES:
                         OPEN_TRADES.remove(occ_symbol)
 
             except Exception as e:
                 print(f"Error monitoring {occ_symbol}: {e}")
-        await asyncio.sleep(30)
+
+        await asyncio.sleep(10)
 
 # ---------------- DISCORD BOT ---------------- #
 intents = discord.Intents.default()
@@ -245,8 +262,8 @@ async def on_message(message):
 
     try:
         qty = calculate_position_size(entry_price)
-        # place_trade(occ_symbol, qty, entry_price)
-        place_trade(contract["symbol"], qty, entry_price)
+        place_trade(occ_symbol, qty, entry_price)
+        # place_trade(contract["symbol"], qty, entry_price)
 
         # Track trade for auto-sell
         OPEN_TRADES_INFO[occ_symbol] = {
