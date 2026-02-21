@@ -18,7 +18,7 @@ __pycache__/
 
 # IDE files
 .idea/
-.vscode/
+temp_auto_push.bat
 
 
 #migrations
@@ -40,3 +40,5 @@ migrations
 # db.sqlite3
 # /db.sqlite3
 # *.sqlite3
+.gitignore
+temp_interactive_push.bat
