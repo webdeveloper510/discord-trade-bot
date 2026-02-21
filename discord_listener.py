@@ -11,6 +11,7 @@ from alpaca_trade_api import REST
 import asyncio
 import requests
 
+
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
@@ -19,10 +20,6 @@ client = discord.Client(intents=intents)
 async def on_ready():
     print(f"Discord Bot logged in as {client.user}")
 
-# @client.event
-# async def on_ready():
-#     print(f"Logged in as {client.user}")
-#     client.loop.create_task(auto_sell_loop())    
 
 # ---------------- CONFIG ---------------- #
 # SIGNAL_CHANNEL_ID = 1459267180859359357
@@ -54,211 +51,99 @@ ENTRY_PRICES_FILE = "entry_prices.txt"
 
 # ---------------- DISCORD ---------------- #
 
-intents = discord.Intents.default()
-intents.message_content = True
-client = discord.Client(intents=intents)
-
-# ---------------- ALPACA API ---------------- #
-
-def get_api():
-    return REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
-
-# ---------------- OPEN TRADES ---------------- #
-
+# ---------------- PERSISTENT TRADES ---------------- #
 def load_open_trades():
     if not os.path.exists(OPEN_TRADES_FILE):
         return set()
-
-    with open(OPEN_TRADES_FILE) as f:
+    with open(OPEN_TRADES_FILE, "r") as f:
         return set(line.strip() for line in f)
 
-def save_open_trade(contract):
-
+def save_open_trade(contract_id):
     with open(OPEN_TRADES_FILE, "a") as f:
-        f.write(contract + "\n")
+        f.write(contract_id + "\n")
 
 OPEN_TRADES = load_open_trades()
 
 # ---------------- EMAIL ---------------- #
-
 def send_trade_email(subject, body):
-
     msg = MIMEMultipart()
-
     msg["From"] = EMAIL_HOST_USER
     msg["To"] = ALERT_EMAIL_TO
     msg["Subject"] = subject
-
     msg.attach(MIMEText(body, "plain"))
 
     server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
-
     server.starttls()
     server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
     server.send_message(msg)
     server.quit()
 
-# ---------------- SPX → SPY ---------------- #
+# ---------------- ALPACA ---------------- #
+def get_api():
+    return REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
 
-def convert_spx_to_spy(contract):
-
-    if contract["symbol"] == "SPX":
-
-        print("SPX detected — converting to SPY")
-
-        contract["symbol"] = "SPY"
-        contract["strike"] = int(contract["strike"] / 10)
-
-        print("Converted strike →", contract["strike"])
-
-    return contract
-
-# ---------------- PARSE SIGNAL ---------------- #
-
+# ---------------- PARSING ---------------- #
 def parse_bear_contract(text):
-
+    """
+    Example signal:
+    Contract: SPY 1/19 480C
+    """
     pattern = r"Contract:\s*\$?(\w+)\s+(\d{1,2})/(\d{1,2})\s+(\d+)([CP])"
-
     match = re.search(pattern, text, re.IGNORECASE)
 
-    if match:
+    if not match:
+        return None
 
-        symbol, month, day, strike, opt_type = match.groups()
+    symbol, month, day, strike, opt_type = match.groups()
 
-        return {
-            "symbol": symbol.upper(),
-            "month": int(month),
-            "day": int(day),
-            "strike": int(strike),
-            "type": opt_type.upper(),
-        }
-
-    pattern2 = r"Contract:\s*\$?(\w+)\s+(\d+)([CP])"
-
-    match = re.search(pattern2, text, re.IGNORECASE)
-
-    if match:
-
-        symbol, strike, opt_type = match.groups()
-
-        today = datetime.utcnow()
-
-        return {
-            "symbol": symbol.upper(),
-            "month": today.month,
-            "day": today.day,
-            "strike": int(strike),
-            "type": opt_type.upper(),
-        }
-
-    return None
-
-# ---------------- FIND OPTION CONTRACT ---------------- #
-
-def find_valid_option(symbol, strike, option_type):
-
-    today = datetime.utcnow().date()
-
-    url = f"{ALPACA_BASE_URL}/v2/options/contracts"
-
-    headers = {
-        "APCA-API-KEY-ID": ALPACA_API_KEY,
-        "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY
+    return {
+        "symbol": symbol.upper(),
+        "month": int(month),
+        "day": int(day),
+        "strike": int(strike),
+        "type": opt_type.upper(),
     }
+    
+def build_occ_symbol(contract):
+    """
+    Converts Bear contract → OCC option symbol
+    SPY 1/19 480C → SPY250119C00480000
+    """
+    year = datetime.now().year % 100
+    exp = f"{year:02d}{contract['month']:02d}{contract['day']:02d}"
+    strike = f"{contract['strike'] * 1000:08d}"
 
-    params = {
-        "underlying_symbols": symbol,
-        "expiration_date": today.isoformat(),
-        "limit": 1000
-    }
-
-    try:
-
-        r = requests.get(url, headers=headers, params=params)
-
-        data = r.json()
-
-        contracts = data.get("option_contracts", [])
-
-        closest = None
-        min_diff = 999999
-
-        for c in contracts:
-
-            if c["type"].upper() != option_type:
-                continue
-
-            diff = abs(float(c["strike_price"]) - strike)
-
-            if diff < min_diff:
-
-                min_diff = diff
-                closest = c
-
-        if closest:
-
-            print("Using contract:", closest["symbol"])
-
-            return closest["symbol"]
-
-    except Exception as e:
-
-        print("Contract lookup failed:", e)
-
-    return None
-
-# ---------------- ENTRY PRICE ---------------- #
-
+    return f"{contract['symbol']}{exp}{contract['type']}{strike}"  
+  
 def extract_entry_price(text):
-
     patterns = [
         r"Entry:\s*@?\s*(\d+(\.\d+)?)",
         r"@\s*(\d+(\.\d+)?)"
     ]
-
     for p in patterns:
-
         match = re.search(p, text, re.IGNORECASE)
-
         if match:
             return float(match.group(1))
-
     return None
 
-# ---------------- FILTER ---------------- #
-
 def is_trim_or_update(text):
-
     keywords = [
-        "trim", "trimming", "runner",
-        "update", "sold", "sell",
-        "tp", "sl", "stop"
+        "trim", "trimming", "runner", "update",
+        "sold", "sell", "tp", "sl", "stop"
     ]
-
     return any(k in text.lower() for k in keywords)
-
-# ---------------- POSITION SIZE ---------------- #
-
+# ---------------- POSITION LOGIC ---------------- #
 def calculate_position_size(entry_price):
-
     api = get_api()
-
     cash = float(api.get_account().cash)
-
     max_value = cash * MAX_RISK_PER_TRADE
 
-    qty = int(max_value / (entry_price * 100))
-
+    qty = int(max_value / (entry_price * 100))  # options multiplier
     return max(1, qty)
 
-# ---------------- PLACE TRADE ---------------- #
-
-def place_trade(symbol, qty, entry_price):
-
+def place_trade(symbol, qty, entry_price, asset_class="stock"):
     if ALERT_ONLY:
-
-        print("ALERT ONLY:", symbol)
-
+        print(f"ALERT ONLY: {symbol} @ {entry_price} x {qty} ({asset_class})")
         return
 
     api = get_api()
@@ -268,34 +153,27 @@ def place_trade(symbol, qty, entry_price):
         qty=qty,
         side="buy",
         type="limit",
+        time_in_force="day",
         limit_price=entry_price,
-        time_in_force="day"
+        asset_class=asset_class
     )
+# ---------------- DISCORD BOT ---------------- #
+intents = discord.Intents.default()
+intents.message_content = True
+client = discord.Client(intents=intents)
 
-# ---------------- ACCOUNT BALANCE ---------------- #
 
 def get_account_balance():
-
     api = get_api()
-
     account = api.get_account()
-
     return {
         "cash": float(account.cash),
         "equity": float(account.equity),
         "buying_power": float(account.buying_power),
     }
 
-# ---------------- DISCORD EVENTS ---------------- #
-
-@client.event
-async def on_ready():
-
-    print("Discord Bot logged in as", client.user)
-
 @client.event
 async def on_message(message):
-
     if message.author == client.user:
         return
 
@@ -304,103 +182,82 @@ async def on_message(message):
 
     text = message.content.strip()
 
+    # Health check
     if text.lower() == "hi":
-
-        await message.channel.send("🤖 Bear Bot running")
-
+        await message.channel.send("🤖 Bear Bot is running and listening ✅")
         return
-
+    
+    # ✅ Balance check
     if text == "balance":
-
-        bal = get_account_balance()
-
-        msg = (
-            f"💰 Balance\n\n"
-            f"Cash: ${bal['cash']:.2f}\n"
-            f"Equity: ${bal['equity']:.2f}\n"
-            f"Buying Power: ${bal['buying_power']:.2f}"
-        )
-
-        await message.channel.send(msg)
-
+        try:
+            bal = get_account_balance()
+            msg = (
+                f"💰 **Account Balance**\n\n"
+                f"Cash: ${bal['cash']:.2f}\n"
+                f"Equity: ${bal['equity']:.2f}\n"
+                f"Buying Power: ${bal['buying_power']:.2f}"
+            )
+            await message.channel.send(msg)
+        except Exception as e:
+            await message.channel.send(f"❌ Failed to fetch balance: {e}")
         return
-
     await message.channel.send("👀 Signal received – checking...")
 
+    # ❌ Ignore trims / updates / sells
     if is_trim_or_update(text):
-
-        await message.channel.send("⛔ Ignored sell/update signal")
-
+        await message.channel.send("⛔ Ignored: Trim / update / sell signal")
         return
 
+    # ❌ Require FULL contract
     contract = parse_bear_contract(text)
-
     if not contract:
-
-        await message.channel.send("⛔ Invalid contract")
-
+        await message.channel.send("⛔ Ignored: No valid contract found")
         return
 
-    contract = convert_spx_to_spy(contract)
+    occ_symbol = build_occ_symbol(contract)
+    contract_id = occ_symbol
 
-    occ_symbol = find_valid_option(
-        contract["symbol"],
-        contract["strike"],
-        contract["type"]
-    )
-
-    if not occ_symbol:
-
-        await message.channel.send("❌ No valid option found")
-
-        return
-
+    # ❌ Require ENTRY price
     entry_price = extract_entry_price(text)
-
     if entry_price is None:
-
-        await message.channel.send("⛔ Entry price missing")
-
+        await message.channel.send(
+            "⛔ Ignored: No entry price (already in position)"
+        )
         return
 
-    if occ_symbol in OPEN_TRADES:
-
-        await message.channel.send("⛔ Trade already open")
-
-        return
+    # ❌ Prevent duplicate trades
+    # if contract_id in OPEN_TRADES:
+    #     await message.channel.send("⛔ Ignored: Contract already open")
+    #     return
 
     try:
-
+        alpaca_symbol = contract_id.split("_")[0]
+        occ_symbol = build_occ_symbol(contract)
         qty = calculate_position_size(entry_price)
-
-        place_trade(occ_symbol, qty, entry_price)
-
-        OPEN_TRADES.add(occ_symbol)
-
-        save_open_trade(occ_symbol)
-
-        stop = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
-        target = round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)
+        # place_trade(contract["symbol"], qty, entry_price)
+        place_trade(occ_symbol, qty, entry_price, asset_class="option")
+        
+                                                                                                                                                                                           
+        OPEN_TRADES.add(contract_id)
+        save_open_trade(contract_id)
 
         msg = (
             f"🚀 TRADE EXECUTED\n\n"
             f"Option: {occ_symbol}\n"
             f"Contracts: {qty}\n"
             f"Entry: {entry_price}\n"
-            f"Stop: {stop}\n"
-            f"Target: {target}"
+            f"Stop: {round(entry_price * (1 - STOP_LOSS_PERCENT), 2)}\n"
+            f"Target: {round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)}\n"
         )
 
         await message.channel.send(msg)
-
-        send_trade_email("Trade Executed", msg)
+        send_trade_email("🚨 Bear Bot Trade Executed", msg)
 
     except Exception as e:
-
         await message.channel.send(f"❌ Trade Failed: {e}")
+        send_trade_email("❌ Bear Bot Trade Failed", str(e))
 
-        send_trade_email("Trade Failed", str(e))
-
+# ---------------- START ---------------- #
 def start_discord():
     client.run(DISCORD_TOKEN)
 
@@ -408,9 +265,48 @@ if __name__ == "__main__":
     start_discord()
 
 
+# intents = discord.Intents.default()
+# intents.message_content = True
+# client = discord.Client(intents=intents)
+
+# @client.event
+# async def on_ready():
+#     print(f"Discord Bot logged in as {client.user}")
+
+# # @client.event
+# # async def on_ready():
+# #     print(f"Logged in as {client.user}")
+# #     client.loop.create_task(auto_sell_loop())    
+
+# # ---------------- CONFIG ---------------- #
+# # SIGNAL_CHANNEL_ID = 1459267180859359357
+# SIGNAL_CHANNEL_ID = 1463777958010425394
+
+# DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+
+# ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
+# ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
+# ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+
+# EMAIL_HOST = "smtp.gmail.com"
+# EMAIL_PORT = 587
+# EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "pratish@codenomad.net")
+# EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD","jldmjuduvlnvbrar")
+# ALERT_EMAIL_TO = "davinder@codenomad.net"
+# ALERT_ONLY = False
+# # MAX_RISK_PER_TRADE = 0.20
+# # STOP_LOSS_PERCENT = 0.20
+# # TAKE_PROFIT_PERCENT = 0.20
+
+# MAX_RISK_PER_TRADE = 0.02 
+# STOP_LOSS_PERCENT = 0.2
+# TAKE_PROFIT_PERCENT = 0.3
+
+# OPEN_TRADES_FILE = "open_trades.txt"
+# ENTRY_PRICES_FILE = "entry_prices.txt"
 
 
-
+# # ---------------- DISCORD ---------------- #
 
 # # ---------------- PERSISTENT TRADES ---------------- #
 # def load_open_trades():
