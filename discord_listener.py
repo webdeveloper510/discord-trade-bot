@@ -109,7 +109,8 @@ def build_occ_symbol(contract):
     Converts Bear contract → OCC option symbol
     SPY 1/19 480C → SPY250119C00480000
     """
-    year = datetime.now().year % 100
+    # year = datetime.now().year % 100
+    year = datetime.utcnow().year % 100
     exp = f"{year:02d}{contract['month']:02d}{contract['day']:02d}"
     
     strike = f"{contract['strike'] * 1000:08d}"
@@ -156,7 +157,7 @@ def place_trade(symbol, qty, entry_price):
         type="limit",
         limit_price=entry_price,
         time_in_force="day",
-        asset_class="option"
+        # asset_class="option"
     )
 
 # ---------------- DISCORD BOT ---------------- #
