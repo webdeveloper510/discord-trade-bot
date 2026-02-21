@@ -141,21 +141,20 @@ def calculate_position_size(entry_price):
     qty = int(max_value / (entry_price * 100))  # options multiplier
     return max(1, qty)
 
-def place_trade(symbol, qty, entry_price, asset_class="stock"):
+def place_trade(symbol, qty, entry_price):
     if ALERT_ONLY:
-        print(f"ALERT ONLY: {symbol} @ {entry_price} x {qty} ({asset_class})")
+        print(f"ALERT ONLY: {symbol} @ {entry_price} x {qty}")
         return
 
     api = get_api()
 
     api.submit_order(
-        symbol=symbol,
-        qty=qty,
+        symbol=symbol,          # OCC symbol or stock symbol
+        qty=qty,                # contracts for options
         side="buy",
         type="limit",
-        time_in_force="day",
         limit_price=entry_price,
-        asset_class=asset_class
+        time_in_force="day"
     )
 # ---------------- DISCORD BOT ---------------- #
 intents = discord.Intents.default()
@@ -235,7 +234,7 @@ async def on_message(message):
         occ_symbol = build_occ_symbol(contract)
         qty = calculate_position_size(entry_price)
         # place_trade(contract["symbol"], qty, entry_price)
-        place_trade(occ_symbol, qty, entry_price, asset_class="option")
+        place_trade(occ_symbol, qty, entry_price) 
         
                                                                                                                                                                                            
         OPEN_TRADES.add(contract_id)
