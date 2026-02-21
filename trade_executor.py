@@ -151,3 +151,12 @@ def get_api():
 
 # if __name__ == "__main__":
 #     main()
+
+
+#333333333333333333333333333300------Live alpaca code -----------------
+
+
+# key:- PKUKLN43KW5WEBVZ44G2IAFZCJ
+
+# secret:- 4Cb77bRcVMVbhSzRfaJLbXjhteZ3LPhycRkroKatcgKv
+

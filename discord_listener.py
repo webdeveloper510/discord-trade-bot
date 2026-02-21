@@ -33,11 +33,17 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "pratish@codenomad.net")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD","jldmjuduvlnvbrar")
 ALERT_EMAIL_TO = "davinder@codenomad.net"
 ALERT_ONLY = False
-MAX_RISK_PER_TRADE = 0.20
-STOP_LOSS_PERCENT = 0.20
-TAKE_PROFIT_PERCENT = 0.20
+# MAX_RISK_PER_TRADE = 0.20
+# STOP_LOSS_PERCENT = 0.20
+# TAKE_PROFIT_PERCENT = 0.20
+
+MAX_RISK_PER_TRADE = 0.02  # 2% of cash per trade
+STOP_LOSS_PERCENT = 0.2
+TAKE_PROFIT_PERCENT = 0.3
 
 OPEN_TRADES_FILE = "open_trades.txt"
+ENTRY_PRICES_FILE = "entry_prices.txt"
+
 
 # ---------------- PERSISTENT TRADES ---------------- #
 def load_open_trades():
@@ -50,7 +56,23 @@ def save_open_trade(contract_id):
     with open(OPEN_TRADES_FILE, "a") as f:
         f.write(contract_id + "\n")
 
+def load_entry_prices():
+    if not os.path.exists(ENTRY_PRICES_FILE):
+        return {}
+    prices = {}
+    with open(ENTRY_PRICES_FILE, "r") as f:
+        for line in f:
+            parts = line.strip().split(",")
+            if len(parts) == 2:
+                prices[parts[0]] = float(parts[1])
+    return prices
+
+def save_entry_price(contract_id, price):
+    with open(ENTRY_PRICES_FILE, "a") as f:
+        f.write(f"{contract_id},{price}\n")
+
 OPEN_TRADES = load_open_trades()
+ENTRY_PRICES = load_entry_prices()
 
 # ---------------- EMAIL ---------------- #
 def send_trade_email(subject, body):
@@ -72,18 +94,11 @@ def get_api():
 
 # ---------------- PARSING ---------------- #
 def parse_bear_contract(text):
-    """
-    Example signal:
-    Contract: SPY 1/19 480C
-    """
     pattern = r"Contract:\s*\$?(\w+)\s+(\d{1,2})/(\d{1,2})\s+(\d+)([CP])"
     match = re.search(pattern, text, re.IGNORECASE)
-
     if not match:
         return None
-
     symbol, month, day, strike, opt_type = match.groups()
-
     return {
         "symbol": symbol.upper(),
         "month": int(month),
@@ -91,23 +106,15 @@ def parse_bear_contract(text):
         "strike": int(strike),
         "type": opt_type.upper(),
     }
-    
+
 def build_occ_symbol(contract):
-    """
-    Converts Bear contract → OCC option symbol
-    SPY 1/19 480C → SPY250119C00480000
-    """
     year = datetime.now().year % 100
     exp = f"{year:02d}{contract['month']:02d}{contract['day']:02d}"
     strike = f"{contract['strike'] * 1000:08d}"
+    return f"{contract['symbol']}{exp}{contract['type']}{strike}"
 
-    return f"{contract['symbol']}{exp}{contract['type']}{strike}"  
-  
 def extract_entry_price(text):
-    patterns = [
-        r"Entry:\s*@?\s*(\d+(\.\d+)?)",
-        r"@\s*(\d+(\.\d+)?)"
-    ]
+    patterns = [r"Entry:\s*@?\s*(\d+(\.\d+)?)", r"@\s*(\d+(\.\d+)?)"]
     for p in patterns:
         match = re.search(p, text, re.IGNORECASE)
         if match:
@@ -115,18 +122,15 @@ def extract_entry_price(text):
     return None
 
 def is_trim_or_update(text):
-    keywords = [
-        "trim", "trimming", "runner", "update",
-        "sold", "sell", "tp", "sl", "stop"
-    ]
+    keywords = ["trim", "trimming", "runner", "update", "sold", "sell", "tp", "sl", "stop"]
     return any(k in text.lower() for k in keywords)
+
 # ---------------- POSITION LOGIC ---------------- #
 def calculate_position_size(entry_price):
     api = get_api()
     cash = float(api.get_account().cash)
     max_value = cash * MAX_RISK_PER_TRADE
-
-    qty = int(max_value / (entry_price * 100))  # options multiplier
+    qty = int(max_value / (entry_price * 100))
     return max(1, qty)
 
 def place_trade(symbol, qty, entry_price):
@@ -134,20 +138,32 @@ def place_trade(symbol, qty, entry_price):
         print(f"ALERT ONLY: {symbol} @ {entry_price} x {qty}")
         return
     api = get_api()
-
     api.submit_order(
         symbol=symbol,
         qty=qty,
         side="buy",
         type="limit",
         limit_price=entry_price,
-        time_in_force="day" 
+        time_in_force="day"
     )
+
+def sell_trade(symbol, qty):
+    if ALERT_ONLY:
+        print(f"ALERT ONLY SELL: {symbol} x {qty}")
+        return
+    api = get_api()
+    api.submit_order(
+        symbol=symbol,
+        qty=qty,
+        side="sell",
+        type="market",
+        time_in_force="day"
+    )
+
 # ---------------- DISCORD BOT ---------------- #
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
-
 
 def get_account_balance():
     api = get_api()
@@ -157,6 +173,45 @@ def get_account_balance():
         "equity": float(account.equity),
         "buying_power": float(account.buying_power),
     }
+
+# ---------------- AUTO SELL ---------------- #
+def check_open_trades_and_sell():
+    api = get_api()
+    to_remove = set()
+
+    for contract_id in OPEN_TRADES:
+        symbol = contract_id.split("_")[0]
+        try:
+            bars = api.get_bars(symbol, "1Min", limit=1)
+            if not bars:
+                continue
+            current_price = float(bars[-1].c)
+
+            entry_price = ENTRY_PRICES.get(contract_id)
+            if not entry_price:
+                continue
+
+            stop_price = entry_price * (1 - STOP_LOSS_PERCENT)
+            target_price = entry_price * (1 + TAKE_PROFIT_PERCENT)
+            qty = calculate_position_size(entry_price)
+
+            if current_price <= stop_price:
+                sell_trade(symbol, qty)
+                to_remove.add(contract_id)
+                send_trade_email("⚠️ Trade Stopped Out",
+                                 f"{contract_id} sold at stop-loss: {current_price}")
+
+            elif current_price >= target_price:
+                sell_trade(symbol, qty)
+                to_remove.add(contract_id)
+                send_trade_email("🏆 Trade Target Hit",
+                                 f"{contract_id} sold at target: {current_price}")
+
+        except Exception as e:
+            print(f"Failed to check/sell {contract_id}: {e}")
+
+    for cid in to_remove:
+        OPEN_TRADES.remove(cid)
 
 @client.event
 async def on_message(message):
@@ -170,31 +225,33 @@ async def on_message(message):
 
     # Health check
     if text.lower() == "hi":
-        await message.channel.send("🤖 Bear Bot is running and listening ✅")
+        await message.channel.send("🤖 Bear Bot is running ✅")
         return
-    
-    # ✅ Balance check
-    if text == "balance":
+
+    # Balance check
+    if text.lower() == "balance":
         try:
             bal = get_account_balance()
-            msg = (
-                f"💰 **Account Balance**\n\n"
-                f"Cash: ${bal['cash']:.2f}\n"
-                f"Equity: ${bal['equity']:.2f}\n"
-                f"Buying Power: ${bal['buying_power']:.2f}"
-            )
+            msg = (f"💰 **Account Balance**\n\n"
+                   f"Cash: ${bal['cash']:.2f}\n"
+                   f"Equity: ${bal['equity']:.2f}\n"
+                   f"Buying Power: ${bal['buying_power']:.2f}")
             await message.channel.send(msg)
         except Exception as e:
             await message.channel.send(f"❌ Failed to fetch balance: {e}")
         return
+
+    # Check auto-sell first
+    check_open_trades_and_sell()
+
     await message.channel.send("👀 Signal received – checking...")
 
-    # ❌ Ignore trims / updates / sells
+    # Ignore trims/updates/sells for new buys
     if is_trim_or_update(text):
         await message.channel.send("⛔ Ignored: Trim / update / sell signal")
         return
 
-    # ❌ Require FULL contract
+    # Parse contract
     contract = parse_bear_contract(text)
     if not contract:
         await message.channel.send("⛔ Ignored: No valid contract found")
@@ -203,38 +260,33 @@ async def on_message(message):
     occ_symbol = build_occ_symbol(contract)
     contract_id = occ_symbol
 
-    # ❌ Require ENTRY price
+    # Entry price
     entry_price = extract_entry_price(text)
     if entry_price is None:
-        await message.channel.send(
-            "⛔ Ignored: No entry price (already in position)"
-        )
+        await message.channel.send("⛔ Ignored: No entry price (already in position)")
         return
 
-    # ❌ Prevent duplicate trades
-    # if contract_id in OPEN_TRADES:
-    #     await message.channel.send("⛔ Ignored: Contract already open")
-    #     return
+    # Prevent duplicate trades
+    if contract_id in OPEN_TRADES:
+        await message.channel.send("⛔ Ignored: Contract already open")
+        return
 
     try:
-        alpaca_symbol = contract_id.split("_")[0]
         qty = calculate_position_size(entry_price)
         place_trade(contract["symbol"], qty, entry_price)
-        # place_trade(occ_symbol, qty, entry_price)
-        
-                                                                                                                                                                                           
+
         OPEN_TRADES.add(contract_id)
         save_open_trade(contract_id)
 
-        msg = (
-            f"🚀 TRADE EXECUTED\n\n"
-            f"Option: {occ_symbol}\n"
-            f"Contracts: {qty}\n"
-            f"Entry: {entry_price}\n"
-            f"Stop: {round(entry_price * (1 - STOP_LOSS_PERCENT), 2)}\n"
-            f"Target: {round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)}\n"
-        )
+        ENTRY_PRICES[contract_id] = entry_price
+        save_entry_price(contract_id, entry_price)
 
+        msg = (f"🚀 TRADE EXECUTED\n\n"
+               f"Option: {occ_symbol}\n"
+               f"Contracts: {qty}\n"
+               f"Entry: {entry_price}\n"
+               f"Stop: {round(entry_price * (1 - STOP_LOSS_PERCENT), 2)}\n"
+               f"Target: {round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)}\n")
         await message.channel.send(msg)
         send_trade_email("🚨 Bear Bot Trade Executed", msg)
 
@@ -248,4 +300,215 @@ def start_discord():
 
 if __name__ == "__main__":
     start_discord()
+
+
+# # ---------------- PERSISTENT TRADES ---------------- #
+# def load_open_trades():
+#     if not os.path.exists(OPEN_TRADES_FILE):
+#         return set()
+#     with open(OPEN_TRADES_FILE, "r") as f:
+#         return set(line.strip() for line in f)
+
+# def save_open_trade(contract_id):
+#     with open(OPEN_TRADES_FILE, "a") as f:
+#         f.write(contract_id + "\n")
+
+# OPEN_TRADES = load_open_trades()
+
+# # ---------------- EMAIL ---------------- #
+# def send_trade_email(subject, body):
+#     msg = MIMEMultipart()
+#     msg["From"] = EMAIL_HOST_USER
+#     msg["To"] = ALERT_EMAIL_TO
+#     msg["Subject"] = subject
+#     msg.attach(MIMEText(body, "plain"))
+
+#     server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
+#     server.starttls()
+#     server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
+#     server.send_message(msg)
+#     server.quit()
+
+# # ---------------- ALPACA ---------------- #
+# def get_api():
+#     return REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
+
+# # ---------------- PARSING ---------------- #
+# def parse_bear_contract(text):
+#     """
+#     Example signal:
+#     Contract: SPY 1/19 480C
+#     """
+#     pattern = r"Contract:\s*\$?(\w+)\s+(\d{1,2})/(\d{1,2})\s+(\d+)([CP])"
+#     match = re.search(pattern, text, re.IGNORECASE)
+
+#     if not match:
+#         return None
+
+#     symbol, month, day, strike, opt_type = match.groups()
+
+#     return {
+#         "symbol": symbol.upper(),
+#         "month": int(month),
+#         "day": int(day),
+#         "strike": int(strike),
+#         "type": opt_type.upper(),
+#     }
+    
+# def build_occ_symbol(contract):
+#     """
+#     Converts Bear contract → OCC option symbol
+#     SPY 1/19 480C → SPY250119C00480000
+#     """
+#     year = datetime.now().year % 100
+#     exp = f"{year:02d}{contract['month']:02d}{contract['day']:02d}"
+#     strike = f"{contract['strike'] * 1000:08d}"
+
+#     return f"{contract['symbol']}{exp}{contract['type']}{strike}"  
+  
+# def extract_entry_price(text):
+#     patterns = [
+#         r"Entry:\s*@?\s*(\d+(\.\d+)?)",
+#         r"@\s*(\d+(\.\d+)?)"
+#     ]
+#     for p in patterns:
+#         match = re.search(p, text, re.IGNORECASE)
+#         if match:
+#             return float(match.group(1))
+#     return None
+
+# def is_trim_or_update(text):
+#     keywords = [
+#         "trim", "trimming", "runner", "update",
+#         "sold", "sell", "tp", "sl", "stop"
+#     ]
+#     return any(k in text.lower() for k in keywords)
+# # ---------------- POSITION LOGIC ---------------- #
+# def calculate_position_size(entry_price):
+#     api = get_api()
+#     cash = float(api.get_account().cash)
+#     max_value = cash * MAX_RISK_PER_TRADE
+
+#     qty = int(max_value / (entry_price * 100))  # options multiplier
+#     return max(1, qty)
+
+# def place_trade(symbol, qty, entry_price):
+#     if ALERT_ONLY:
+#         print(f"ALERT ONLY: {symbol} @ {entry_price} x {qty}")
+#         return
+#     api = get_api()
+
+#     api.submit_order(
+#         symbol=symbol,
+#         qty=qty,
+#         side="buy",
+#         type="limit",
+#         limit_price=entry_price,
+#         time_in_force="day" 
+#     )
+# # ---------------- DISCORD BOT ---------------- #
+# intents = discord.Intents.default()
+# intents.message_content = True
+# client = discord.Client(intents=intents)
+
+
+# def get_account_balance():
+#     api = get_api()
+#     account = api.get_account()
+#     return {
+#         "cash": float(account.cash),
+#         "equity": float(account.equity),
+#         "buying_power": float(account.buying_power),
+#     }
+
+# @client.event
+# async def on_message(message):
+#     if message.author == client.user:
+#         return
+
+#     if message.channel.id != SIGNAL_CHANNEL_ID:
+#         return
+
+#     text = message.content.strip()
+
+#     # Health check
+#     if text.lower() == "hi":
+#         await message.channel.send("🤖 Bear Bot is running and listening ✅")
+#         return
+    
+#     # ✅ Balance check
+#     if text == "balance":
+#         try:
+#             bal = get_account_balance()
+#             msg = (
+#                 f"💰 **Account Balance**\n\n"
+#                 f"Cash: ${bal['cash']:.2f}\n"
+#                 f"Equity: ${bal['equity']:.2f}\n"
+#                 f"Buying Power: ${bal['buying_power']:.2f}"
+#             )
+#             await message.channel.send(msg)
+#         except Exception as e:
+#             await message.channel.send(f"❌ Failed to fetch balance: {e}")
+#         return
+#     await message.channel.send("👀 Signal received – checking...")
+
+#     # ❌ Ignore trims / updates / sells
+#     if is_trim_or_update(text):
+#         await message.channel.send("⛔ Ignored: Trim / update / sell signal")
+#         return
+
+#     # ❌ Require FULL contract
+#     contract = parse_bear_contract(text)
+#     if not contract:
+#         await message.channel.send("⛔ Ignored: No valid contract found")
+#         return
+
+#     occ_symbol = build_occ_symbol(contract)
+#     contract_id = occ_symbol
+
+#     # ❌ Require ENTRY price
+#     entry_price = extract_entry_price(text)
+#     if entry_price is None:
+#         await message.channel.send(
+#             "⛔ Ignored: No entry price (already in position)"
+#         )
+#         return
+
+#     # ❌ Prevent duplicate trades
+#     # if contract_id in OPEN_TRADES:
+#     #     await message.channel.send("⛔ Ignored: Contract already open")
+#     #     return
+
+#     try:
+#         alpaca_symbol = contract_id.split("_")[0]
+#         qty = calculate_position_size(entry_price)
+#         place_trade(contract["symbol"], qty, entry_price)
+#         # place_trade(occ_symbol, qty, entry_price)
+        
+                                                                                                                                                                                           
+#         OPEN_TRADES.add(contract_id)
+#         save_open_trade(contract_id)
+
+#         msg = (
+#             f"🚀 TRADE EXECUTED\n\n"
+#             f"Option: {occ_symbol}\n"
+#             f"Contracts: {qty}\n"
+#             f"Entry: {entry_price}\n"
+#             f"Stop: {round(entry_price * (1 - STOP_LOSS_PERCENT), 2)}\n"
+#             f"Target: {round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)}\n"
+#         )
+
+#         await message.channel.send(msg)
+#         send_trade_email("🚨 Bear Bot Trade Executed", msg)
+
+#     except Exception as e:
+#         await message.channel.send(f"❌ Trade Failed: {e}")
+#         send_trade_email("❌ Bear Bot Trade Failed", str(e))
+
+# # ---------------- START ---------------- #
+# def start_discord():
+#     client.run(DISCORD_TOKEN)
+
+# if __name__ == "__main__":
+#     start_discord()
 
