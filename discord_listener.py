@@ -153,13 +153,19 @@ def get_account_balance():
     }
 
 # ---------------- MONITOR TRADES ---------------- #
+
+
+
 async def monitor_trades():
     api = get_api()
     while True:
         for occ_symbol, data in list(OPEN_TRADES_INFO.items()):
             try:
-                quote = api.get_last_trade(occ_symbol)
-                current_price = quote.price
+                bars = api.get_bars(occ_symbol, "1Min", limit=1, adjustment='raw').df
+                if bars.empty:
+                    continue
+
+                current_price = bars['close'].iloc[-1]
 
                 if current_price <= data["stop"] or current_price >= data["target"]:
                     api.submit_order(
@@ -173,13 +179,14 @@ async def monitor_trades():
                     await client.get_channel(SIGNAL_CHANNEL_ID).send(
                         f"🟢 AUTO SELL EXECUTED: {occ_symbol}\nPrice: {current_price}\nQty: {data['qty']}"
                     )
+
                     del OPEN_TRADES_INFO[occ_symbol]
                     if occ_symbol in OPEN_TRADES:
                         OPEN_TRADES.remove(occ_symbol)
 
             except Exception as e:
                 print(f"Error monitoring {occ_symbol}: {e}")
-        await asyncio.sleep(30)  # check every 30 seconds
+        await asyncio.sleep(30)
 
 # ---------------- DISCORD BOT ---------------- #
 intents = discord.Intents.default()
