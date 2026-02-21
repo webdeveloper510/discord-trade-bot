@@ -232,14 +232,18 @@ async def on_message(message):
         return
 
     # ❌ Require FULL contract
-    contract = convert_spx_to_spy(contract)
-    occ_symbol = build_occ_symbol(contract)
-    # contract = parse_bear_contract(text)
+    contract = parse_bear_contract(text)
+
     if not contract:
         await message.channel.send("⛔ Ignored: No valid contract found")
         return
 
+    # Convert SPX → SPY if needed
+    contract = convert_spx_to_spy(contract)
+
+    # Build OCC symbol
     occ_symbol = build_occ_symbol(contract)
+
     contract_id = occ_symbol
 
     # ❌ Require ENTRY price
