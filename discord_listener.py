@@ -105,17 +105,21 @@ def parse_bear_contract(text):
     }
     
 def build_occ_symbol(contract):
-    """
-    Converts Bear contract → OCC option symbol
-    SPY 1/19 480C → SPY250119C00480000
-    """
-    # year = datetime.now().year % 100
-    year = datetime.utcnow().year % 100
+    today = datetime.utcnow()
+    current_year = today.year % 100
+
+    exp_date = datetime(today.year, contract["month"], contract["day"])
+
+    # if expiration already passed this year → use next year
+    if exp_date < today:
+        year = (today.year + 1) % 100
+    else:
+        year = current_year
+
     exp = f"{year:02d}{contract['month']:02d}{contract['day']:02d}"
-    
     strike = f"{contract['strike'] * 1000:08d}"
 
-    return f"{contract['symbol']}{exp}{contract['type']}{strike}"  
+    return f"{contract['symbol']}{exp}{contract['type']}{strike}" 
   
 def extract_entry_price(text):
     patterns = [
