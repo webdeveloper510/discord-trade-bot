@@ -155,23 +155,10 @@ def place_trade(symbol, qty, entry_price):
         side="buy",
         type="limit",
         limit_price=entry_price,
-        time_in_force="day"   # ONLY this
+        time_in_force="day",
+        asset_class="option"
     )
-    
-# def place_trade(symbol, qty, entry_price):
-#     if ALERT_ONLY:
-#         print(f"ALERT ONLY: {symbol} @ {entry_price} x {qty}")
-#         return
-#     api = get_api()
 
-#     api.submit_order(
-#         symbol=symbol,
-#         qty=qty,
-#         side="buy",
-#         type="limit",
-#         limit_price=entry_price,
-#         time_in_force="day" 
-#     )
 # ---------------- DISCORD BOT ---------------- #
 intents = discord.Intents.default()
 intents.message_content = True
@@ -248,8 +235,8 @@ async def on_message(message):
     try:
         alpaca_symbol = contract_id.split("_")[0]
         qty = calculate_position_size(entry_price)
-        place_trade(contract["symbol"], qty, entry_price)
-        # place_trade(occ_symbol, qty, entry_price)
+        # place_trade(contract["symbol"], qty, entry_price)
+        place_trade(occ_symbol, qty, entry_price)
         
                                                                                                                                                                                            
         OPEN_TRADES.add(contract_id)
