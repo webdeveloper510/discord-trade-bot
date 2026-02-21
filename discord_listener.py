@@ -248,8 +248,8 @@ async def on_message(message):
     try:
         alpaca_symbol = contract_id.split("_")[0]
         qty = calculate_position_size(entry_price)
-        # place_trade(contract["symbol"], qty, entry_price)
-        place_trade(occ_symbol, qty, entry_price)
+        place_trade(contract["symbol"], qty, entry_price)
+        # place_trade(occ_symbol, qty, entry_price)
         
                                                                                                                                                                                            
         OPEN_TRADES.add(contract_id)
