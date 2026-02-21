@@ -183,21 +183,23 @@ def get_account_balance():
 # ---------------- AUTO SELL ---------------- #
 
 def convert_spx_to_spy(contract):
-    """
-    Converts SPX contract to equivalent SPY contract
-    using live price ratio.
-    """
     api = get_api()
 
     try:
-        spx_price = float(api.get_latest_trade("SPY").price) * 10
+        # Get live prices
         spy_price = float(api.get_latest_trade("SPY").price)
+
+        # You need SPX index price from market data
+        # If you do NOT have SPX data, approximate using SPY*10
+        spx_price_estimated = spy_price * 10
+
     except Exception as e:
-        print("Failed to fetch SPY price for conversion:", e)
+        print("Price fetch failed:", e)
         return contract
 
-    ratio = spx_price / spy_price  # ~10
-    converted_strike = round(contract["strike"] / ratio)
+    # Preserve relative distance
+    relative_ratio = contract["strike"] / spx_price_estimated
+    converted_strike = round(spy_price * relative_ratio)
 
     print(f"Converted SPX {contract['strike']} -> SPY {converted_strike}")
 
