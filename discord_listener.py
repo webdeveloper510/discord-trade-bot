@@ -149,20 +149,13 @@ def place_trade(symbol, qty, entry_price):
 
     api = get_api()
 
-    stop_price = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
-    target_price = round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)
-
     api.submit_order(
         symbol=symbol,
         qty=qty,
         side="buy",
         type="limit",
         limit_price=entry_price,
-        # time_in_force="gtc",
-        time_in_force="day",
-        order_class="bracket",
-        take_profit={"limit_price": target_price},
-        stop_loss={"stop_price": stop_price}
+        time_in_force="day"   # ONLY this
     )
     
 # def place_trade(symbol, qty, entry_price):
