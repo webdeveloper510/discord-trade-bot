@@ -245,7 +245,8 @@ async def on_message(message):
 
     try:
         qty = calculate_position_size(entry_price)
-        place_trade(occ_symbol, qty, entry_price)
+        # place_trade(occ_symbol, qty, entry_price)
+        place_trade(contract["symbol"], qty, entry_price)
 
         # Track trade for auto-sell
         OPEN_TRADES_INFO[occ_symbol] = {
