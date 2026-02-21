@@ -82,6 +82,18 @@ def send_trade_email(subject, body):
 def get_api():
     return REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
 
+
+def convert_spx_to_spy(contract):
+    if contract["symbol"] == "SPX":
+        print(f"SPX detected — converting to SPY")
+
+        contract["symbol"] = "SPY"
+        contract["strike"] = int(contract["strike"] / 10)
+
+        print(f"Converted SPX strike → {contract['strike']}")
+
+    return contract
+
 # ---------------- PARSING ---------------- #
 def parse_bear_contract(text):
     """
@@ -104,22 +116,26 @@ def parse_bear_contract(text):
         "type": opt_type.upper(),
     }
     
+    
 def build_occ_symbol(contract):
     today = datetime.utcnow()
-    current_year = today.year % 100
 
     exp_date = datetime(today.year, contract["month"], contract["day"])
 
-    # if expiration already passed this year → use next year
     if exp_date < today:
         year = (today.year + 1) % 100
     else:
-        year = current_year
+        year = today.year % 100
 
     exp = f"{year:02d}{contract['month']:02d}{contract['day']:02d}"
+
     strike = f"{contract['strike'] * 1000:08d}"
 
-    return f"{contract['symbol']}{exp}{contract['type']}{strike}" 
+    occ = f"{contract['symbol']}{exp}{contract['type']}{strike}"
+
+    print(f"OCC Symbol Built: {occ}")
+
+    return occ
   
 def extract_entry_price(text):
     patterns = [
@@ -216,7 +232,9 @@ async def on_message(message):
         return
 
     # ❌ Require FULL contract
-    contract = parse_bear_contract(text)
+    contract = convert_spx_to_spy(contract)
+    occ_symbol = build_occ_symbol(contract)
+    # contract = parse_bear_contract(text)
     if not contract:
         await message.channel.send("⛔ Ignored: No valid contract found")
         return
@@ -247,14 +265,17 @@ async def on_message(message):
         OPEN_TRADES.add(contract_id)
         save_open_trade(contract_id)
 
+        stop = round(entry_price * (1 - STOP_LOSS_PERCENT), 2)
+        target = round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)
+
         msg = (
             f"🚀 TRADE EXECUTED\n\n"
             f"Option: {occ_symbol}\n"
             f"Contracts: {qty}\n"
             f"Entry: {entry_price}\n"
-            f"Stop: {round(entry_price * (1 - STOP_LOSS_PERCENT), 2)}\n"
-            f"Target: {round(entry_price * (1 + TAKE_PROFIT_PERCENT), 2)}\n"
-        )
+            f"Stop Loss: {stop}\n"
+            f"Take Profit: {target}\n"
+)
 
         await message.channel.send(msg)
         send_trade_email("🚨 Bear Bot Trade Executed", msg)
