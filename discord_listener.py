@@ -158,7 +158,7 @@ def place_trade(symbol, qty, entry_price):
         side="buy",
         type="limit",
         limit_price=entry_price,
-        time_in_force="day",
+        time_in_force="gtc",
         order_class="bracket",
         take_profit={"limit_price": target_price},
         stop_loss={"stop_price": stop_price}
