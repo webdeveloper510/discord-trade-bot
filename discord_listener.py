@@ -177,41 +177,31 @@ def get_account_balance():
 # ---------------- AUTO SELL ---------------- #
 def check_open_trades_and_sell():
     api = get_api()
-    to_remove = set()
 
-    for contract_id in OPEN_TRADES:
-        symbol = contract_id.split("_")[0]
-        try:
-            bars = api.get_bars(symbol, "1Min", limit=1)
-            if not bars:
-                continue
-            current_price = float(bars[-1].c)
+    try:
+        positions = api.list_positions()
+    except Exception as e:
+        print("Failed to fetch positions:", e)
+        return
 
-            entry_price = ENTRY_PRICES.get(contract_id)
-            if not entry_price:
-                continue
+    for position in positions:
+        symbol = position.symbol
+        qty = int(position.qty)
+        entry_price = float(position.avg_entry_price)
+        current_price = float(position.current_price)
 
-            stop_price = entry_price * (1 - STOP_LOSS_PERCENT)
-            target_price = entry_price * (1 + TAKE_PROFIT_PERCENT)
-            qty = calculate_position_size(entry_price)
+        stop_price = entry_price * (1 - STOP_LOSS_PERCENT)
+        target_price = entry_price * (1 + TAKE_PROFIT_PERCENT)
 
-            if current_price <= stop_price:
-                sell_trade(symbol, qty)
-                to_remove.add(contract_id)
-                send_trade_email("⚠️ Trade Stopped Out",
-                                 f"{contract_id} sold at stop-loss: {current_price}")
+        # Stop Loss
+        if current_price <= stop_price:
+            print(f"STOP HIT: {symbol}")
+            sell_trade(symbol, qty)
 
-            elif current_price >= target_price:
-                sell_trade(symbol, qty)
-                to_remove.add(contract_id)
-                send_trade_email("🏆 Trade Target Hit",
-                                 f"{contract_id} sold at target: {current_price}")
-
-        except Exception as e:
-            print(f"Failed to check/sell {contract_id}: {e}")
-
-    for cid in to_remove:
-        OPEN_TRADES.remove(cid)
+        # Take Profit
+        elif current_price >= target_price:
+            print(f"TARGET HIT: {symbol}")
+            sell_trade(symbol, qty)
 
 @client.event
 async def on_message(message):
